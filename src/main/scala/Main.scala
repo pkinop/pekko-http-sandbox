@@ -6,10 +6,14 @@ import spray.json.RootJsonFormat
 import org.apache.pekko.Done
 
 import scala.concurrent.Future
-import org.apache.pekko.http.scaladsl.server.{Directives, Route}
+import org.apache.pekko.http.scaladsl.server.Route
+import org.apache.pekko.http.scaladsl.server.Directives._
 import org.apache.pekko.http.scaladsl.Http
-import org.apache.pekko.http.scaladsl.model.{ContentTypes, HttpEntity}
-import org.apache.pekko.http.scaladsl.server.Directives.{complete, path}
+import org.apache.pekko.http.scaladsl.model.{ContentTypes, HttpEntity, StatusCodes, Uri}
+import org.apache.pekko.http.scaladsl.server.Directives.{LongNumber, complete, onSuccess, path, pathPrefix}
+import org.apache.pekko.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
+import spray.json.DefaultJsonProtocol._
+import spray.json.RootJsonFormat
 import spray.json.DefaultJsonProtocol.{jsonFormat1, jsonFormat2}
 
 import scala.io.StdIn
@@ -20,7 +24,6 @@ object HttpServerRoutingMinimal {
     Behaviors.empty, "SprayExemple"
   )
   implicit val executionContext: ExecutionContext = system.executionContext
-  /*
   var orders: List[Item] = Nil
   
   final case class Item(name: String, id: Long)
@@ -37,20 +40,31 @@ object HttpServerRoutingMinimal {
     orders = order.items ::: orders
     Future { Done }
   }
-  */
 
   def main(args: Array[String]): Unit = {
     val route: Route =
-      path("hello") {
-        Directives.get {
-          complete(
-            HttpEntity(
-              ContentTypes.`text/html(UTF-8)`,
-              "<h1>Say hello to Pekko HTTP</h1>"
-            )
-          )
+      concat(
+        get {
+          pathPrefix("item" / LongNumber) { id =>
+            val maybeItem: Future[Option[Item]] = fetchItem(id)
+
+            onSuccess(maybeItem) {
+              case Some(item) => complete(item)
+              case None => complete(StatusCodes.NotFound)
+            }
+          }
+        },
+        post {
+          path("create-order") {
+            entity(as[Order]) { order =>
+              val saved: Future[Done] = saveOrder(order)
+              onSuccess(saved) { _ =>
+                complete("order created")
+              }
+            }
+          }
         }
-      }
+      )
 
     val bindingFuture = Http().newServerAt("localhost", 8080).bind(route)
 
